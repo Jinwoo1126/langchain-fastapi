@@ -67,12 +67,28 @@ current_user = verify_session(st.session_state.auth_token)
 
 # 로그인 된 경우 채팅 인터페이스 표시
 # 사이드바 설정
+# 사이드바 설정 (app.py의 사이드바 부분을 이것으로 교체)
 with st.sidebar:
-    st.title(f"👤 {current_user['username']}")
+    # 사용자 이름과 로그아웃 버튼을 같은 행에 배치
+    col_user, col_logout = st.columns([2, 1])
+    
+    with col_user:
+        st.markdown(f"### 👤 {current_user['username']}")
+    
+    with col_logout:
+        st.markdown("<br>", unsafe_allow_html=True)  # 약간의 수직 정렬을 위한 공간
+        if st.button("🚪", help="로그아웃", key="logout_btn", use_container_width=True):
+            if st.session_state.auth_token:
+                delete_session(st.session_state.auth_token)
+            st.session_state.auth_token = None
+            st.session_state.messages = []
+            st.session_state.show_user_management = False
+            st.rerun()
     
     # 관리자인 경우 사용자 관리 토글 버튼 표시
     if current_user['username'] == 'admin':
-        if st.button("👥 사용자 관리" if not st.session_state.show_user_management else "💬 채팅으로 돌아가기"):
+        if st.button("👥 사용자 관리" if not st.session_state.show_user_management else "💬 채팅으로 돌아가기", 
+                    use_container_width=True, key="user_mgmt_toggle"):
             st.session_state.show_user_management = not st.session_state.show_user_management
             st.rerun()
     
@@ -92,41 +108,77 @@ with st.sidebar:
         search_type = st.radio(
             "검색 유형",
             ["이름으로 검색", "직책으로 검색"],
-            key="search_type"  # 세션 상태에 자동으로 저장됨
+            key="search_type"
         )
+        
+        # 검색 타입이 변경되면 관련 상태 초기화
+        if "previous_search_type" not in st.session_state:
+            st.session_state.previous_search_type = search_type
+
+        if st.session_state.previous_search_type != search_type:
+            keys_to_clear = ['search_results', 'selected_result', 'search_query', 'search_input']
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+            
+            st.success(f"🔄 검색 타입이 '{search_type}'으로 변경되어 이전 검색 결과가 초기화되었습니다.")
+            st.session_state.previous_search_type = search_type
         
         # 검색 결과 표시 섹션
         st.divider()
-        col1, col2 = st.columns(2)
+        st.markdown("#### 📊 현재 선택된 정보")
         
-        with col1:
-            st.markdown("#### 이름")
-            name_value = st.session_state.search_query if search_type == "이름으로 검색" else st.session_state.selected_result
-            if isinstance(name_value, str) and name_value.strip():
-                st.code(name_value)
-            else:
-                st.text("-")
-            
-        with col2:
-            st.markdown("#### 직책")
-            position_value = st.session_state.selected_result if search_type == "이름으로 검색" else st.session_state.search_query
-            if isinstance(position_value, str) and position_value.strip():
-                st.code(position_value)
-            else:
-                st.text("-")
+        # 이름 표시
+        st.markdown("**👤 이름**")
+        if search_type == "이름으로 검색":
+            name_value = st.session_state.get("search_query", "")
+        else:
+            name_value = st.session_state.get("selected_result", "")
         
+        if name_value and isinstance(name_value, str) and name_value.strip():
+            st.code(name_value, language=None)
+        else:
+            st.text("-")
+        
+        # 직책 표시
+        st.markdown("**💼 직책**")
+        if search_type == "이름으로 검색":
+            position_value = st.session_state.get("selected_result", "")
+        else:
+            position_value = st.session_state.get("search_query", "")
+        
+        if position_value and isinstance(position_value, str) and position_value.strip():
+            st.code(position_value, language=None)
+        else:
+            st.text("-")
+
         st.divider()
+        
+        # 검색 입력
         search_query = st.text_input(
             "검색어",
-            placeholder="이름" if search_type == "이름으로 검색" else "직책"
+            placeholder="이름" if search_type == "이름으로 검색" else "직책",
+            key="search_input"
         )
         
-        if st.button("검색", use_container_width=True) and search_query:
-            # 검색어를 세션 상태에 저장
+        # 검색 버튼 (전체 너비 사용)
+        search_clicked = st.button("🔍 검색", use_container_width=True, type="primary")
+        
+        # 초기화 버튼 (전체 너비 사용하여 일관된 모양 유지)
+        if st.button("🗑️ 초기화", use_container_width=True):
+            keys_to_clear = ['search_results', 'selected_result', 'search_query', 'search_input']
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.success("모든 검색 결과가 초기화되었습니다!")
+            st.rerun()
+
+        # 검색 버튼 처리
+        if search_clicked and search_query:
             st.session_state.search_query = search_query
+            
             try:
                 with st.spinner("검색 중..."):
-                    # API 요청
                     response = requests.get(
                         EMPLOYEE_SEARCH_API,
                         params={
@@ -137,78 +189,89 @@ with st.sidebar:
                     )
                     
                     if response.status_code == 200:
-                        # response에서 결과 가져오기
                         results_data = response.json().get("response", "[]")
                         
-                        # 결과 타입에 따른 처리
                         if isinstance(results_data, str):
                             try:
-                                # 문자열을 리스트로 변환
                                 results = json.loads(results_data.replace("'", '"'))
                             except json.JSONDecodeError:
                                 results = []
                         elif isinstance(results_data, list):
-                            # 이미 리스트인 경우 그대로 사용
                             results = results_data
                         else:
-                            # 다른 타입인 경우 빈 리스트로 처리
                             results = []
                         
-                        # 결과 표시
+                        st.session_state.search_results = results
+                        
                         if results:
-                            # 검색 결과 통계
-                            st.info(f"총 {len(results)}개의 결과를 찾았습니다.")
-                            
-                            # 결과를 세션 상태에 저장
-                            if 'search_results' not in st.session_state:
-                                st.session_state.search_results = results
-                            if 'selected_result' not in st.session_state:
-                                st.session_state.selected_result = None
-
-                            # 검색 결과 표시
-                            if results:
-                                # 결과에서 실제 값만 추출 (리스트 내부의 문자열)
-                                result_options = []
-                                for result in results:
-                                    if isinstance(result, list) and len(result) > 0:
-                                        result_options.append(result[0])
-                                    elif isinstance(result, str):
-                                        result_options.append(result)
-                                
-                                # selectbox 표시
-                                selected_index = 0
-                                if result_options and st.session_state.selected_result in result_options:
-                                    selected_index = result_options.index(st.session_state.selected_result)
-                                
-                                selected_result = st.selectbox(
-                                    "검색 결과",
-                                    options=result_options,
-                                    index=selected_index,
-                                    key="search_result_select"
-                                )
-                                
-                                # 선택된 결과 저장
-                                if selected_result is not None:
-                                    st.session_state.selected_result = result_options[selected_result]
-                                    # 결과 표시를 위해 즉시 리렌더링
-                                    st.rerun()
+                            st.success(f"✅ {len(results)}개 결과 발견")
                         else:
                             st.info("검색 결과가 없습니다.")
+                            st.session_state.search_results = []
+                            if 'selected_result' in st.session_state:
+                                del st.session_state.selected_result
                     else:
                         st.error(f"API 요청 실패: {response.status_code}")
                 
             except Exception as e:
-                st.error(f"검색 중 오류가 발생했습니다: {str(e)}")
+                st.error(f"검색 중 오류: {str(e)}")
+
+        elif search_clicked:
+            st.warning("검색어를 입력해주세요.")
+
+        # 검색 결과가 있는 경우 selectbox 표시
+        if st.session_state.get("search_results"):
+            results = st.session_state.search_results
+            
+            if results:
+                result_options = []
+                for result in results:
+                    if isinstance(result, list) and len(result) > 0:
+                        result_options.append(result[0])
+                    elif isinstance(result, str):
+                        result_options.append(result)
+                
+                if result_options:
+                    st.markdown("---")
+                    st.markdown("**📋 검색 결과 선택**")
+                    
+                    current_index = 0
+                    if st.session_state.get("selected_result") in result_options:
+                        current_index = result_options.index(st.session_state.selected_result)
+                    
+                    # selectbox
+                    temp_selected = st.selectbox(
+                        "결과 선택:",
+                        options=result_options,
+                        index=current_index,
+                        key="search_result_selectbox"
+                    )
+                    
+                    # 반영 버튼 (전체 너비 사용)
+                    button_disabled = temp_selected == st.session_state.get("selected_result")
+                    if st.button(
+                        "✅ 반영", 
+                        use_container_width=True, 
+                        type="primary",
+                        disabled=button_disabled
+                    ):
+                        st.session_state.selected_result = temp_selected
+                        st.success(f"✅ '{temp_selected}' 반영됨!")
+                        st.rerun()
+                    
+                    # 현재 상태 표시
+                    current_selected = st.session_state.get("selected_result")
+                    if current_selected:
+                        if temp_selected != current_selected:
+                            st.info(f"🔄 선택: {temp_selected}")
+                        else:
+                            st.success(f"✅ 적용됨: {current_selected}")
+                    else:
+                        st.info(f"🔄 선택: {temp_selected}")
     
-    if st.button("대화 초기화"):
+    # 대화 초기화 버튼
+    if st.button("🔄 대화 초기화", use_container_width=True):
         st.session_state.messages = []
-        st.rerun()
-    if st.button("로그아웃"):
-        if st.session_state.auth_token:
-            delete_session(st.session_state.auth_token)
-        st.session_state.auth_token = None
-        st.session_state.messages = []
-        st.session_state.show_user_management = False
         st.rerun()
 
 # 메인 인터페이스
