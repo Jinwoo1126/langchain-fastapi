@@ -1,10 +1,14 @@
 from pydantic_settings import BaseSettings
-from typing import Optional
 
 class Settings(BaseSettings):
     # API Configuration
     API_V1_STR: str = "/api/v1"
     PROJECT_NAME: str = "FastAPI LangChain Project"
+    CHAT_API_URL: str = "http://localhost:8000/api/v1/chat"
+    
+    # Security Configuration
+    SECRET_KEY: str
+    ACCESS_TOKEN_EXPIRE_HOURS: int = 24
     
     # Ollama Configuration
     OLLAMA_BASE_URL: str = "http://localhost:11434"

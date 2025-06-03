@@ -1,4 +1,4 @@
-from typing import AsyncIterator
+from typing import AsyncIterator, Iterator
 from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, SystemMessage
 from ..core.settings import settings
@@ -33,7 +33,29 @@ def generate_response(message: str, system_prompt: str | None = None) -> str:
     except Exception as e:
         raise LLMServiceError(f"Failed to generate response: {str(e)}")
 
-async def generate_stream(message: str, system_prompt: str | None = None) -> AsyncIterator[StreamResponse]:
+def generate_stream_sync(message: str, system_prompt: str | None = None) -> Iterator[StreamResponse]:
+    """동기적 스트리밍 응답 생성"""
+    try:
+        llm = get_llm(stream=True)
+        messages = []
+        
+        if system_prompt:
+            messages.append(SystemMessage(content=system_prompt))
+        messages.append(HumanMessage(content=message))
+        
+        for chunk in llm.stream(messages):
+            try:
+                encoded_text = chunk.content.encode().decode('utf-8')
+                yield StreamResponse(text=encoded_text, done=False)
+            except UnicodeError:
+                raise LLMServiceError("Failed to encode streaming response")
+                
+        yield StreamResponse(text="", done=True)
+    except Exception as e:
+        raise LLMServiceError(f"Failed to generate streaming response: {str(e)}")
+
+async def generate_stream_async(message: str, system_prompt: str | None = None) -> AsyncIterator[StreamResponse]:
+    """비동기적 스트리밍 응답 생성"""
     try:
         llm = get_llm(stream=True)
         messages = []
@@ -44,7 +66,6 @@ async def generate_stream(message: str, system_prompt: str | None = None) -> Asy
         
         async for chunk in llm.astream(messages):
             try:
-                # 스트림 청크 인코딩 처리
                 encoded_text = chunk.content.encode().decode('utf-8')
                 yield StreamResponse(text=encoded_text, done=False)
             except UnicodeError:
@@ -53,3 +74,6 @@ async def generate_stream(message: str, system_prompt: str | None = None) -> Asy
         yield StreamResponse(text="", done=True)
     except Exception as e:
         raise LLMServiceError(f"Failed to generate streaming response: {str(e)}")
+
+# 기존 generate_stream을 generate_stream_async로 대체하기 위한 별칭
+generate_stream = generate_stream_async
